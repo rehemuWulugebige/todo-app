@@ -1,65 +1,210 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { Todo } from "../types";
+import { supabase } from "../lib/supabase";
+import Header from "../components/Header";
+import DateNavigation from "../components/DateNavigation";
+import TodoInput from "../components/TodoInput";
+import TodoList from "../components/TodoList";
+import Summary from "../components/Summary";
+import SyncButton from "../components/SyncButton";
+import ExportButton from "../components/ExportButton";
 
 export default function Home() {
+  // the state
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [inputValue, setInputValue] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // loading our todo from the database but only once
+  useEffect(() => {
+    const loadTodos = async () => {
+      const { data, error } = await supabase
+        .from("todos")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error loading todos:", error);
+      } else {
+        // convert supabase data to our todo format
+        const formattedTodos: Todo[] = data.map((item) => ({
+          id: item.id.toString(),
+          title: item.title,
+          completed: item.completed,
+          date: item.date,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+        }));
+        setTodos(formattedTodos);
+      }
+
+      setSelectedDate(new Date().toISOString().split("T")[0]);
+      setIsLoaded(true);
+    };
+
+    loadTodos();
+  }, []);
+
+  // date calculation
+  const todayISO = new Date().toISOString().split("T")[0];
+
+  const selectedDateObj = new Date(selectedDate + "T00:00:00");
+  const dateString = selectedDateObj.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const isToday = selectedDate === todayISO;
+
+  // this is our handlers
+  const handleAddTodo = async () => {
+    if (inputValue.trim() === "") return;
+
+    const newTodo = {
+      title: inputValue.trim(),
+      completed: false,
+      date: selectedDate,
+    };
+
+    const { data, error } = await supabase
+      .from("todos")
+      .insert([newTodo])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding todo:", error);
+    } else {
+      const formattedTodo: Todo = {
+        id: String(data.id),
+        title: data.title,
+        completed: data.completed,
+        date: data.date,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      };
+      setTodos([...todos, formattedTodo]);
+      setInputValue("");
+    }
+  };
+
+  const handleToggleTodo = async (id: string) => {
+    const todo = todos.find((t) => t.id === id);
+    if (!todo) return;
+
+    const { error } = await supabase
+      .from("todos")
+      .update({
+        completed: !todo.completed,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error toggling todo:", error);
+    } else {
+      setTodos(
+        todos.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                completed: !t.completed,
+                updatedAt: new Date().toISOString(),
+              }
+            : t
+        )
+      );
+    }
+  };
+
+  const handleDeleteTodo = async (id: string) => {
+    const { error } = await supabase.from("todos").delete().eq("id", id);
+
+    if (error) {
+      console.error("Error deleting todo:", error);
+    } else {
+      setTodos(todos.filter((t) => t.id !== id));
+    }
+  };
+
+  const goToPreviousDay = () => {
+    const current = new Date(selectedDate);
+    current.setDate(current.getDate() - 1);
+    setSelectedDate(current.toISOString().split("T")[0]);
+  };
+
+  const goToNextDay = () => {
+    const current = new Date(selectedDate);
+    current.setDate(current.getDate() + 1);
+    setSelectedDate(current.toISOString().split("T")[0]);
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date().toISOString().split("T")[0]);
+  };
+
+  // filtered data
+  const filteredTodos = todos.filter((todo) => todo.date === selectedDate);
+  const completedCount = filteredTodos.filter((todo) => todo.completed).length;
+
+  // render
+  if (!isLoaded) {
+    return (
+      <div
+        style={{
+          maxWidth: "600px",
+          margin: "0 auto",
+          padding: "20px",
+          textAlign: "center",
+        }}
+      >
+        Loading...
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "20px" }}>
+      <Header title="My Todo App" />
+
+      <DateNavigation
+        dateString={dateString}
+        isToday={isToday}
+        onPrevious={goToPreviousDay}
+        onNext={goToNextDay}
+        onToday={goToToday}
+      />
+
+      <TodoInput
+        value={inputValue}
+        onChange={setInputValue}
+        onAdd={handleAddTodo}
+      />
+
+      <TodoList
+        todos={filteredTodos}
+        onToggle={handleToggleTodo}
+        onDelete={handleDeleteTodo}
+      />
+
+      <Summary total={filteredTodos.length} completed={completedCount} />
+
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <ExportButton todos={todos} />
+        <SyncButton todos={todos} />{" "}
+      </div>
     </div>
   );
 }
